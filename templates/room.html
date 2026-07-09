@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Комната {{ code }} — PartyPuzzle</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="room-body" data-room="{{ code }}" data-name="{{ name }}">
+  <header class="topbar">
+    <div class="brand brand-lockup">
+      {% include "_logo.html" %}
+      <span>PartyPuzzle</span>
+    </div>
+    <div class="room-code-box">
+      Код комнаты: <span id="room-code">{{ code }}</span>
+      <button id="copy-link-btn" class="btn tiny" title="Скопировать ссылку-приглашение">Скопировать ссылку</button>
+    </div>
+    <div id="timer" class="timer hidden"></div>
+  </header>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <main id="lobby-view" class="lobby-view">
+    <section class="panel players-panel">
+      <h2>Игроки</h2>
+      <ul id="player-list" class="player-list"></ul>
+    </section>
+
+    <section class="panel setup-panel">
+      <h2>Картинка для пазла</h2>
+      <div id="preview-wrap" class="preview-wrap">
+        <img id="preview-img" alt="Предпросмотр" class="hidden">
+        <div id="preview-empty" class="preview-empty">Картинка ещё не загружена</div>
+      </div>
+
+      <div id="host-controls" class="host-controls hidden">
+        <label class="upload-label">
+          Загрузить картинку
+          <input type="file" id="file-input" accept="image/*" hidden>
+        </label>
+
+        <div class="difficulty-row">
+          <span>Сложность:</span>
+          <button class="btn diff-btn" data-diff="easy">Легко (4×3)</button>
+          <button class="btn diff-btn" data-diff="medium">Средне (6×4)</button>
+          <button class="btn diff-btn" data-diff="hard">Сложно (8×6)</button>
+          <button class="btn diff-btn" data-diff="extreme">Очень сложно (10×8)</button>
+        </div>
+        <div id="diff-current" class="diff-current"></div>
+
+        <button id="start-btn" class="btn primary big" disabled>Начать игру</button>
+      </div>
+      <div id="guest-hint" class="guest-hint">Ожидание хоста — он выберет картинку и запустит игру.</div>
+    </section>
+  </main>
+
+  <main id="game-view" class="game-view hidden">
+    <div class="game-toolbar">
+      <span id="progress-label">Собрано: 0 / 0</span>
+      <button id="back-to-lobby-btn" class="btn tiny">В лобби</button>
+    </div>
+    <div id="board-wrap" class="board-wrap">
+      <canvas id="board"></canvas>
+    </div>
+  </main>
+
+  <div id="solved-overlay" class="solved-overlay hidden">
+    <div class="solved-card">
+      <h2>🎉 Пазл собран!</h2>
+      <p id="solved-time"></p>
+      <button id="solved-close-btn" class="btn primary">Отлично</button>
+    </div>
+  </div>
+
+  <div id="name-overlay" class="solved-overlay hidden">
+    <div class="solved-card">
+      <h2>Как вас зовут?</h2>
+      <form id="name-form" class="stacked-form">
+        <input type="text" id="name-input" placeholder="Ваше имя" maxlength="24" required>
+        <button type="submit" class="btn primary">Войти в комнату</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/socket.io.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/room.js') }}"></script>
+</body>
+</html>

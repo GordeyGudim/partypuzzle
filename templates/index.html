@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PartyPuzzle</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="home-body">
+  <main class="home-card">
+    <div class="brand-lockup">
+      {% include "_logo.html" %}
+      <h1>PartyPuzzle</h1>
+    </div>
+    <p class="subtitle">Соберите пазл из своей картинки вместе с друзьями в закрытом лобби</p>
+
+    {% if request.args.get('error') == 'notfound' %}
+      <p class="error-msg">Комната не найдена — проверьте код</p>
+    {% elif request.args.get('error') == 'fields' %}
+      <p class="error-msg">Заполните имя и код комнаты</p>
+    {% elif request.args.get('error') == 'name' %}
+      <p class="error-msg">Введите имя</p>
+    {% endif %}
+
+    <section class="panel">
+      <h2>Создать лобби</h2>
+      <form action="{{ url_for('create_room') }}" method="post" class="stacked-form">
+        <input type="text" name="name" placeholder="Ваше имя" maxlength="24" required>
+        <button type="submit" class="btn primary">Создать комнату</button>
+      </form>
+    </section>
+
+    <div class="divider">или</div>
+
+    <section class="panel">
+      <h2>Присоединиться</h2>
+      <form action="{{ url_for('join_room_http') }}" method="post" class="stacked-form">
+        <input type="text" name="name" placeholder="Ваше имя" maxlength="24" required>
+        <input type="text" name="code" placeholder="Код комнаты" maxlength="5" style="text-transform:uppercase" required>
+        <button type="submit" class="btn secondary">Войти в комнату</button>
+      </form>
+    </section>
+
+    <p class="footnote">Лобби закрытое — попасть в него можно только по коду. Никакой регистрации.</p>
+  </main>
+  <script>
+    // Strip ?error=... from the address bar so a page refresh doesn't
+    // keep re-showing a one-time message.
+    if (window.location.search) {
+      history.replaceState(null, "", window.location.pathname);
+    }
+  </script>
+</body>
+</html>
