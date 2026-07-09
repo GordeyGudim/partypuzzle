@@ -58,8 +58,7 @@
     if (playerName) return cb();
     const overlay = el("name-overlay");
     const input = el("name-input");
-    const storedName = localStorage.getItem(NAME_KEY);
-    if (storedName) input.value = storedName; // convenience default, still asked to confirm
+    input.value = ""; // always ask fresh, never prefill with a past name
     overlay.classList.remove("hidden");
     input.focus();
     el("name-form").addEventListener("submit", function onSubmit(e) {
