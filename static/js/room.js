@@ -313,7 +313,10 @@
     let img = null;
 
     let scale = 1, offsetX = 0, offsetY = 0;
+    let fitOffsetX = 0, fitOffsetY = 0;
+    let panX = 0, panY = 0;
     let dragging = null;
+    let panning = null;
     let activePointerId = null;
     let lastMoveEmit = 0;
 
@@ -508,8 +511,12 @@
       const availH = Math.max(ch - pad * 2, 10);
       scale = Math.min(availW / tw, availH / th);
       if (!isFinite(scale) || scale <= 0) scale = 1;
-      offsetX = (cw - tw * scale) / 2;
-      offsetY = (ch - th * scale) / 2;
+      fitOffsetX = (cw - tw * scale) / 2;
+      fitOffsetY = (ch - th * scale) / 2;
+      // panX/panY is a one-finger pan offset the player can drag in on top
+      // of the auto-fit layout (see the pointer handlers below).
+      offsetX = fitOffsetX + panX;
+      offsetY = fitOffsetY + panY;
     }
 
     function render() {
@@ -587,13 +594,24 @@
       if (!payload) return;
       const { cx, cy } = clientToCanvas(e.clientX, e.clientY);
       const id = hitTest(cx, cy);
-      if (id == null) return;
+      activePointerId = e.pointerId;
+      canvas.setPointerCapture(activePointerId);
+
+      if (id == null) {
+        // Empty space: pan the view ourselves rather than relying on the
+        // browser's native one-finger scroll, which the canvas's
+        // touch-action already excludes (see the CSS) and which would
+        // otherwise fight with piece dragging on the very same gesture.
+        panning = { startCx: cx, startCy: cy, startPanX: panX, startPanY: panY };
+        canvas.style.cursor = "grabbing";
+        e.preventDefault();
+        return;
+      }
+
       const p = pieces.get(id);
       const px = (cx - offsetX) / scale;
       const py = (cy - offsetY) / scale;
       dragging = { id, offX: px - p.x, offY: py - p.y };
-      activePointerId = e.pointerId;
-      canvas.setPointerCapture(activePointerId);
       canvas.style.cursor = "grabbing";
       bringToFront(id);
       socket.emit("pickup_piece", { id });
@@ -601,24 +619,37 @@
     });
 
     canvas.addEventListener("pointermove", (e) => {
-      if (!dragging || e.pointerId !== activePointerId) return;
+      if (e.pointerId !== activePointerId) return;
       const { cx, cy } = clientToCanvas(e.clientX, e.clientY);
-      const p = pieces.get(dragging.id);
-      if (!p) return;
-      p.x = (cx - offsetX) / scale - dragging.offX;
-      p.y = (cy - offsetY) / scale - dragging.offY;
-      const now = performance.now();
-      if (now - lastMoveEmit > 40) {
-        lastMoveEmit = now;
-        socket.emit("move_piece", { id: dragging.id, x: p.x, y: p.y });
+
+      if (panning) {
+        panX = panning.startPanX + (cx - panning.startCx);
+        panY = panning.startPanY + (cy - panning.startCy);
+        e.preventDefault();
+        return;
+      }
+
+      if (dragging) {
+        const p = pieces.get(dragging.id);
+        if (!p) return;
+        p.x = (cx - offsetX) / scale - dragging.offX;
+        p.y = (cy - offsetY) / scale - dragging.offY;
+        const now = performance.now();
+        if (now - lastMoveEmit > 40) {
+          lastMoveEmit = now;
+          socket.emit("move_piece", { id: dragging.id, x: p.x, y: p.y });
+        }
+        e.preventDefault();
       }
     });
 
     function endDrag() {
-      if (!dragging) return;
-      const p = pieces.get(dragging.id);
-      if (p) socket.emit("drop_piece", { id: dragging.id, x: p.x, y: p.y });
-      dragging = null;
+      if (dragging) {
+        const p = pieces.get(dragging.id);
+        if (p) socket.emit("drop_piece", { id: dragging.id, x: p.x, y: p.y });
+        dragging = null;
+      }
+      panning = null;
       activePointerId = null;
       canvas.style.cursor = "grab";
     }
