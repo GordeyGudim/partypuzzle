@@ -21,7 +21,12 @@
     localStorage.setItem(ID_KEY, playerId);
   }
 
-  let playerName = nameFromUrl || localStorage.getItem(NAME_KEY) || "";
+  // Only trust a name that was explicitly typed into the create/join form
+  // (passed via ?name=...). A bare invite link never carries one, so those
+  // visitors always get asked -- silently reusing whatever name a previous
+  // session on this browser happened to store would be confusing when
+  // joining a different game with different friends.
+  let playerName = nameFromUrl || "";
   if (nameFromUrl) localStorage.setItem(NAME_KEY, nameFromUrl);
 
   const DIFFICULTIES = {
@@ -52,10 +57,14 @@
   function ensureName(cb) {
     if (playerName) return cb();
     const overlay = el("name-overlay");
+    const input = el("name-input");
+    const storedName = localStorage.getItem(NAME_KEY);
+    if (storedName) input.value = storedName; // convenience default, still asked to confirm
     overlay.classList.remove("hidden");
+    input.focus();
     el("name-form").addEventListener("submit", function onSubmit(e) {
       e.preventDefault();
-      const val = el("name-input").value.trim().slice(0, 24);
+      const val = input.value.trim().slice(0, 24);
       if (!val) return;
       playerName = val;
       localStorage.setItem(NAME_KEY, val);
