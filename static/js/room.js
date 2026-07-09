@@ -547,6 +547,14 @@
     requestAnimationFrame(render);
 
     function hitTest(cx, cy) {
+      // isPointInPath() interprets both the query point and the path
+      // through the context's CURRENT transform. render() leaves the
+      // transform at [DPR,0,0,DPR,0,0] (CSS px -> device px) from the last
+      // frame, but cx/cy and our test paths are in CSS-pixel space -- so on
+      // any screen with devicePixelRatio > 1 (basically every phone) the
+      // point would get scaled by DPR again and miss the piece entirely.
+      // Reset to identity so both sides are compared in the same units.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       for (let i = order.length - 1; i >= 0; i--) {
         const id = order[i];
         const p = pieces.get(id);
