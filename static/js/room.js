@@ -312,6 +312,7 @@
     let img = null;
 
     let scale = 1, offsetX = 0, offsetY = 0;
+    let viewW = 0, viewH = 0; // last rendered canvas CSS size, for drag bounds
     let dragging = null;
     let activePointerId = null;
     let lastMoveEmit = 0;
@@ -513,6 +514,8 @@
 
     function render() {
       const rect = canvas.getBoundingClientRect();
+      viewW = rect.width;
+      viewH = rect.height;
       const pw = Math.max(1, Math.round(rect.width * DPR));
       const ph = Math.max(1, Math.round(rect.height * DPR));
       if (canvas.width !== pw || canvas.height !== ph) {
@@ -606,15 +609,20 @@
       if (!p) return;
       const rawX = (cx - offsetX) / scale - dragging.offX;
       const rawY = (cy - offsetY) / scale - dragging.offY;
-      // Keep the piece from being dragged far off the edge of the board --
-      // otherwise a fast flick can carry it somewhere no longer visible or
-      // clickable, effectively losing it. A margin (rather than a hard
-      // stop right at the playfield edge) still lets pieces be parked
-      // just outside it, which is where people naturally drag them.
-      const margin = Math.max(payload.pieceW, payload.pieceH);
-      const minX = -margin, minY = -margin;
-      const maxX = payload.scatterW - payload.pieceW + margin;
-      const maxY = payload.scatterH - payload.pieceH + margin;
+      // Keep the piece from being dragged off the visible canvas -- a fixed
+      // margin in puzzle-space isn't enough, because once multiplied by the
+      // current zoom `scale` it can be smaller than the actual letterbox
+      // gap around the board, letting the piece slip past the checkered
+      // area entirely. Clamp in screen space instead (at least half the
+      // piece must stay within the canvas's own on-screen bounds), then
+      // convert back -- this always matches what's actually visible,
+      // whatever the scale or aspect ratio.
+      const halfW = (payload.pieceW * scale) / 2;
+      const halfH = (payload.pieceH * scale) / 2;
+      const minX = (-halfW - offsetX) / scale;
+      const minY = (-halfH - offsetY) / scale;
+      const maxX = (viewW + halfW - offsetX) / scale - payload.pieceW;
+      const maxY = (viewH + halfH - offsetY) / scale - payload.pieceH;
       p.x = Math.min(Math.max(rawX, minX), maxX);
       p.y = Math.min(Math.max(rawY, minY), maxY);
       const now = performance.now();
