@@ -604,8 +604,15 @@
       const { cx, cy } = clientToCanvas(e.clientX, e.clientY);
       const p = pieces.get(dragging.id);
       if (!p) return;
-      p.x = (cx - offsetX) / scale - dragging.offX;
-      p.y = (cy - offsetY) / scale - dragging.offY;
+      const rawX = (cx - offsetX) / scale - dragging.offX;
+      const rawY = (cy - offsetY) / scale - dragging.offY;
+      // Keep the piece within the playfield -- otherwise a fast flick can
+      // drag it off the edge of the canvas where it's no longer visible or
+      // clickable, effectively losing it.
+      const maxX = payload.scatterW - payload.pieceW;
+      const maxY = payload.scatterH - payload.pieceH;
+      p.x = Math.min(Math.max(rawX, 0), maxX);
+      p.y = Math.min(Math.max(rawY, 0), maxY);
       const now = performance.now();
       if (now - lastMoveEmit > 40) {
         lastMoveEmit = now;

@@ -378,6 +378,12 @@ def on_pickup_piece(data):
     emit("piece_held", {"id": piece["id"], "holder": player_id, "color": player.get("color", "#888")}, room=code)
 
 
+def clamp_piece_pos(room, x, y):
+    max_x = max(room["scatter_w"] - room["piece_w"], 0)
+    max_y = max(room["scatter_h"] - room["piece_h"], 0)
+    return min(max(x, 0), max_x), min(max(y, 0), max_y)
+
+
 @socketio.on("move_piece")
 def on_move_piece(data):
     entry = sid_to_player.get(request.sid)
@@ -391,8 +397,9 @@ def on_move_piece(data):
     if not piece or piece["locked"] or piece["holder"] != player_id:
         return
     try:
-        piece["x"] = float(data["x"])
-        piece["y"] = float(data["y"])
+        x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
+        piece["x"] = x
+        piece["y"] = y
     except (KeyError, TypeError, ValueError):
         return
     emit(
@@ -417,7 +424,7 @@ def on_drop_piece(data):
         return
 
     try:
-        x, y = float(data["x"]), float(data["y"])
+        x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
     except (KeyError, TypeError, ValueError):
         piece["holder"] = None
         return
