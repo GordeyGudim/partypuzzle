@@ -470,7 +470,11 @@
       sprites.clear();
       localPaths.clear();
       dragging = null;
-      gameStartedAt = Date.now();
+      // Use the server's authoritative start time (seconds since epoch)
+      // rather than "now" on this client -- otherwise a player who joins
+      // or reconnects mid-game sees the timer start over from 0:00 instead
+      // of showing the real elapsed time.
+      gameStartedAt = pl.startTime ? pl.startTime * 1000 : Date.now();
 
       pl.pieces.forEach((p) => {
         pieces.set(p.id, Object.assign({}, p));

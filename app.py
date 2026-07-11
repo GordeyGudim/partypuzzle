@@ -63,6 +63,11 @@ def make_room_code():
 def new_room(code):
     return {
         "code": code,
+        "lock": threading.Lock(),  # guards every mutation below; socket.io
+                                    # handlers run on separate threads and
+                                    # would otherwise race (e.g. two players
+                                    # both passing the pickup_piece check
+                                    # before either sets the holder).
         "host_player": None,
         "players": {},        # player_id -> {name, sid, color, connected, disconnect_timer}
         "image_file": None,   # имя файла в static/uploads
@@ -150,6 +155,10 @@ def game_payload(room):
         "edgesV": room["edgesV"],
         "edgesH": room["edgesH"],
         "pieces": list(room["pieces"].values()),
+        # Authoritative start time (seconds since epoch) rather than letting
+        # each client stamp "now" on arrival -- otherwise a player who joins
+        # or reconnects mid-game sees the timer start over from 0:00.
+        "startTime": room["start_time"],
     }
 
 
@@ -260,13 +269,15 @@ def upload_image(code):
         except OSError:
             pass
 
-    room["image_file"] = filename
-    room["image_w"], room["image_h"] = img.size
-    room["started"] = False
-    room["solved"] = False
+    with room["lock"]:
+        room["image_file"] = filename
+        room["image_w"], room["image_h"] = img.size
+        room["started"] = False
+        room["solved"] = False
+        state = public_room_state(room)
 
     socketio.emit("image_updated", {"image": upload_url(filename)}, room=code)
-    socketio.emit("lobby_state", public_room_state(room), room=code)
+    socketio.emit("lobby_state", state, room=code)
     return jsonify({"ok": True})
 
 
@@ -288,34 +299,40 @@ def on_join_lobby(data):
     sio_join_room(code)
     sid_to_player[request.sid] = (code, player_id)
 
-    existing = room["players"].get(player_id)
-    if existing:
-        timer = existing.pop("disconnect_timer", None)
-        if timer:
-            timer.cancel()
-        existing["sid"] = request.sid
-        existing["connected"] = True
-        existing["name"] = name or existing["name"]
-    else:
-        room["players"][player_id] = {
-            "name": name,
-            "sid": request.sid,
-            "color": assign_color(room),
-            "connected": True,
-            "disconnect_timer": None,
-        }
+    with room["lock"]:
+        existing = room["players"].get(player_id)
+        if existing:
+            timer = existing.pop("disconnect_timer", None)
+            if timer:
+                timer.cancel()
+            existing["sid"] = request.sid
+            existing["connected"] = True
+            existing["name"] = name or existing["name"]
+        else:
+            room["players"][player_id] = {
+                "name": name,
+                "sid": request.sid,
+                "color": assign_color(room),
+                "connected": True,
+                "disconnect_timer": None,
+            }
 
-    if not room["host_player"]:
-        room["host_player"] = player_id
+        if not room["host_player"]:
+            room["host_player"] = player_id
 
-    emit("joined", {"playerId": player_id, "isHost": room["host_player"] == player_id})
-    emit("lobby_state", public_room_state(room), room=code)
+        is_host = room["host_player"] == player_id
+        state = public_room_state(room)
+        game_state = game_payload(room) if room["started"] else None
+        started, solved = room["started"], room["solved"]
+        elapsed = time.time() - room["start_time"] if solved else None
 
-    if room["started"] and not room["solved"]:
-        emit("game_started", game_payload(room))
-    elif room["started"] and room["solved"]:
-        emit("game_started", game_payload(room))
-        emit("puzzle_solved", {"elapsed": time.time() - room["start_time"]})
+    emit("joined", {"playerId": player_id, "isHost": is_host})
+    emit("lobby_state", state, room=code)
+
+    if started and game_state is not None:
+        emit("game_started", game_state)
+        if solved:
+            emit("puzzle_solved", {"elapsed": elapsed})
 
 
 @socketio.on("set_options")
@@ -328,18 +345,20 @@ def on_set_options(data):
     if not room or room["host_player"] != player_id:
         return
 
-    difficulty = data.get("difficulty")
-    if difficulty in DIFFICULTIES:
-        room["rows"], room["cols"] = DIFFICULTIES[difficulty]
-    else:
-        try:
-            rows = max(2, min(14, int(data.get("rows"))))
-            cols = max(2, min(14, int(data.get("cols"))))
-            room["rows"], room["cols"] = rows, cols
-        except (TypeError, ValueError):
-            pass
+    with room["lock"]:
+        difficulty = data.get("difficulty")
+        if difficulty in DIFFICULTIES:
+            room["rows"], room["cols"] = DIFFICULTIES[difficulty]
+        else:
+            try:
+                rows = max(2, min(14, int(data.get("rows"))))
+                cols = max(2, min(14, int(data.get("cols"))))
+                room["rows"], room["cols"] = rows, cols
+            except (TypeError, ValueError):
+                pass
+        state = public_room_state(room)
 
-    emit("lobby_state", public_room_state(room), room=code)
+    emit("lobby_state", state, room=code)
 
 
 @socketio.on("start_game")
@@ -355,8 +374,13 @@ def on_start_game(data):
         emit("lobby_error", {"message": "Сначала загрузите картинку"})
         return
 
-    build_pieces(room)
-    emit("game_started", game_payload(room), room=code)
+    with room["lock"]:
+        build_pieces(room)
+        payload = game_payload(room)
+        state = public_room_state(room)
+
+    emit("game_started", payload, room=code)
+    emit("lobby_state", state, room=code)
 
 
 @socketio.on("pickup_piece")
@@ -368,14 +392,17 @@ def on_pickup_piece(data):
     room = get_room_or_none(code)
     if not room:
         return
-    piece = room["pieces"].get(str(data.get("id")))
-    if not piece or piece["locked"]:
-        return
-    if piece["holder"] not in (None, player_id):
-        return
-    piece["holder"] = player_id
-    player = room["players"].get(player_id, {})
-    emit("piece_held", {"id": piece["id"], "holder": player_id, "color": player.get("color", "#888")}, room=code)
+
+    with room["lock"]:
+        piece = room["pieces"].get(str(data.get("id")))
+        if not piece or piece["locked"]:
+            return
+        if piece["holder"] not in (None, player_id):
+            return
+        piece["holder"] = player_id
+        color = room["players"].get(player_id, {}).get("color", "#888")
+
+    emit("piece_held", {"id": piece["id"], "holder": player_id, "color": color}, room=code)
 
 
 def clamp_piece_pos(room, x, y):
@@ -399,15 +426,18 @@ def on_move_piece(data):
     room = get_room_or_none(code)
     if not room:
         return
-    piece = room["pieces"].get(str(data.get("id")))
-    if not piece or piece["locked"] or piece["holder"] != player_id:
-        return
-    try:
-        x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
-        piece["x"] = x
-        piece["y"] = y
-    except (KeyError, TypeError, ValueError):
-        return
+
+    with room["lock"]:
+        piece = room["pieces"].get(str(data.get("id")))
+        if not piece or piece["locked"] or piece["holder"] != player_id:
+            return
+        try:
+            x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
+            piece["x"] = x
+            piece["y"] = y
+        except (KeyError, TypeError, ValueError):
+            return
+
     emit(
         "piece_moved",
         {"id": piece["id"], "x": piece["x"], "y": piece["y"], "by": player_id},
@@ -425,33 +455,38 @@ def on_drop_piece(data):
     room = get_room_or_none(code)
     if not room:
         return
-    piece = room["pieces"].get(str(data.get("id")))
-    if not piece or piece["locked"] or piece["holder"] != player_id:
-        return
 
-    try:
-        x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
-    except (KeyError, TypeError, ValueError):
+    with room["lock"]:
+        piece = room["pieces"].get(str(data.get("id")))
+        if not piece or piece["locked"] or piece["holder"] != player_id:
+            return
+
+        try:
+            x, y = clamp_piece_pos(room, float(data["x"]), float(data["y"]))
+        except (KeyError, TypeError, ValueError):
+            piece["holder"] = None
+            return
+
+        target_x = piece["col"] * room["piece_w"]
+        target_y = piece["row"] * room["piece_h"]
+        dist = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
+        threshold = min(room["piece_w"], room["piece_h"]) * 0.3
+
+        if dist <= threshold:
+            piece["x"], piece["y"] = target_x, target_y
+            piece["locked"] = True
+        else:
+            piece["x"], piece["y"] = x, y
         piece["holder"] = None
-        return
 
-    target_x = piece["col"] * room["piece_w"]
-    target_y = piece["row"] * room["piece_h"]
-    dist = ((x - target_x) ** 2 + (y - target_y) ** 2) ** 0.5
-    threshold = min(room["piece_w"], room["piece_h"]) * 0.3
+        piece_snapshot = dict(piece)
+        just_solved = room["pieces"] and all(p["locked"] for p in room["pieces"].values())
+        if just_solved:
+            room["solved"] = True
+            elapsed = time.time() - room["start_time"]
 
-    if dist <= threshold:
-        piece["x"], piece["y"] = target_x, target_y
-        piece["locked"] = True
-    else:
-        piece["x"], piece["y"] = x, y
-    piece["holder"] = None
-
-    emit("piece_updated", piece, room=code)
-
-    if room["pieces"] and all(p["locked"] for p in room["pieces"].values()):
-        room["solved"] = True
-        elapsed = time.time() - room["start_time"]
+    emit("piece_updated", piece_snapshot, room=code)
+    if just_solved:
         emit("puzzle_solved", {"elapsed": elapsed}, room=code)
 
 
@@ -465,10 +500,15 @@ def on_release_piece(data):
     room = get_room_or_none(code)
     if not room:
         return
-    piece = room["pieces"].get(str(data.get("id")))
-    if piece and piece["holder"] == player_id:
+
+    with room["lock"]:
+        piece = room["pieces"].get(str(data.get("id")))
+        if not piece or piece["holder"] != player_id:
+            return
         piece["holder"] = None
-        emit("piece_updated", piece, room=code)
+        piece_snapshot = dict(piece)
+
+    emit("piece_updated", piece_snapshot, room=code)
 
 
 @socketio.on("disconnect")
@@ -480,30 +520,38 @@ def on_disconnect():
     room = get_room_or_none(code)
     if not room:
         return
-    player = room["players"].get(player_id)
-    if not player or player["sid"] != request.sid:
-        return
 
-    player["connected"] = False
-    for piece in room["pieces"].values():
-        if piece["holder"] == player_id:
-            piece["holder"] = None
+    with room["lock"]:
+        player = room["players"].get(player_id)
+        if not player or player["sid"] != request.sid:
+            return
+        player["connected"] = False
+        for piece in room["pieces"].values():
+            if piece["holder"] == player_id:
+                piece["holder"] = None
+        state = public_room_state(room)
+
     socketio.emit("piece_released_all", {"player": player_id}, room=code)
-    socketio.emit("lobby_state", public_room_state(room), room=code)
+    socketio.emit("lobby_state", state, room=code)
 
     def expire():
         with app.app_context():
-            with rooms_lock:
-                still = rooms.get(code)
-                if not still:
-                    return
+            still = rooms.get(code)
+            if not still:
+                return
+            with still["lock"]:
                 p = still["players"].get(player_id)
+                removed = False
                 if p and not p["connected"]:
                     del still["players"][player_id]
+                    removed = True
                     if still["host_player"] == player_id:
                         remaining = [pid for pid, pp in still["players"].items() if pp["connected"]]
                         still["host_player"] = remaining[0] if remaining else None
-                    socketio.emit("lobby_state", public_room_state(still), room=code)
+                state = public_room_state(still) if removed else None
+            if state is not None:
+                socketio.emit("lobby_state", state, room=code)
+            with rooms_lock:
                 cleanup_room_if_empty(code)
 
     timer = threading.Timer(ROOM_GRACE_SECONDS, expire)
