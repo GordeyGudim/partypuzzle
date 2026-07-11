@@ -250,7 +250,16 @@ input::placeholder { color: var(--text-dim); }
 }
 .diff-btn { background: rgba(255,255,255,0.08); color: var(--text); font-weight: 500; font-size: 0.85rem; padding: 8px 12px; }
 .diff-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #10102a; }
-.diff-current { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 14px; }
+.diff-current { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 6px; }
+.quality-hint {
+  color: #ffcc66;
+  background: rgba(255, 204, 102, 0.1);
+  border: 1px solid rgba(255, 204, 102, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  margin-bottom: 14px;
+}
 
 .guest-hint { color: var(--text-dim); font-size: 0.9rem; }
 

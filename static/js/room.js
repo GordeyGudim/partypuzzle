@@ -154,14 +154,27 @@
     });
   }
 
+  // Source pixels a piece needs to still look reasonably sharp once drawn
+  // at typical on-screen sizes. Below this, upscaling a low-res photo into
+  // too many pieces is what actually causes the blur -- no amount of
+  // client-side smoothing can put detail back that was never captured.
+  const MIN_PX_PER_PIECE = 15000; // ~122x122
+  let previewImgW = 0, previewImgH = 0;
+
   function renderPreview(imageUrl) {
     const img = el("preview-img");
     const empty = el("preview-empty");
     if (imageUrl) {
+      img.onload = () => {
+        previewImgW = img.naturalWidth;
+        previewImgH = img.naturalHeight;
+        if (lastState) renderDifficulty(lastState.rows, lastState.cols);
+      };
       img.src = imageUrl;
       img.classList.remove("hidden");
       empty.classList.add("hidden");
     } else {
+      previewImgW = previewImgH = 0;
       img.classList.add("hidden");
       empty.classList.remove("hidden");
     }
@@ -173,6 +186,25 @@
       btn.classList.toggle("active", r === rows && c === cols);
     });
     el("diff-current").textContent = `Текущий размер: ${cols} × ${rows} = ${rows * cols} кусочков`;
+
+    const hint = el("quality-hint");
+    if (previewImgW && previewImgH) {
+      const pxPerPiece = (previewImgW * previewImgH) / (rows * cols);
+      if (pxPerPiece < MIN_PX_PER_PIECE) {
+        const maxPieces = Math.floor((previewImgW * previewImgH) / MIN_PX_PER_PIECE);
+        const fits = Object.entries(DIFFICULTIES)
+          .filter(([, [r, c]]) => r * c <= Math.max(maxPieces, 6))
+          .map(([key]) => ({ easy: "Легко", medium: "Средне", hard: "Сложно", extreme: "Оч. сложно" }[key]));
+        hint.textContent = fits.length
+          ? `Картинка маловата для такой сложности — кусочки будут размытыми. Лучше подойдёт: ${fits.join(", ")}.`
+          : "Картинка совсем небольшая — кусочки будут выглядеть размыто на любой сложности.";
+        hint.classList.remove("hidden");
+      } else {
+        hint.classList.add("hidden");
+      }
+    } else {
+      hint.classList.add("hidden");
+    }
   }
 
   function updateHostUI(state) {
@@ -302,6 +334,13 @@
 
   function createGame(canvas) {
     const ctx = canvas.getContext("2d");
+    // Default quality is "low" in most browsers -- "high" gives noticeably
+    // smoother results when a piece is drawn larger than its native pixels
+    // (small source photos, or zooming in), at a cost that's irrelevant for
+    // a canvas this size. Reapplied in render() too, since resizing the
+    // canvas resets the whole 2D context state.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
     let payload = null;
@@ -525,6 +564,10 @@
       if (canvas.width !== pw || canvas.height !== ph) {
         canvas.width = pw;
         canvas.height = ph;
+        // Resizing a canvas resets its whole 2D context state, including
+        // imageSmoothingQuality -- reapply it every time this happens.
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
       }
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
