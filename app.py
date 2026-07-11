@@ -379,9 +379,14 @@ def on_pickup_piece(data):
 
 
 def clamp_piece_pos(room, x, y):
-    max_x = max(room["scatter_w"] - room["piece_w"], 0)
-    max_y = max(room["scatter_h"] - room["piece_h"], 0)
-    return min(max(x, 0), max_x), min(max(y, 0), max_y)
+    # Margin (rather than a hard stop right at the playfield edge) still
+    # lets pieces be parked just outside it, which is where people
+    # naturally drag them -- must match the client's clamp in room.js.
+    margin = max(room["piece_w"], room["piece_h"])
+    min_x, min_y = -margin, -margin
+    max_x = room["scatter_w"] - room["piece_w"] + margin
+    max_y = room["scatter_h"] - room["piece_h"] + margin
+    return min(max(x, min_x), max_x), min(max(y, min_y), max_y)
 
 
 @socketio.on("move_piece")

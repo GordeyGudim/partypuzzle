@@ -606,13 +606,17 @@
       if (!p) return;
       const rawX = (cx - offsetX) / scale - dragging.offX;
       const rawY = (cy - offsetY) / scale - dragging.offY;
-      // Keep the piece within the playfield -- otherwise a fast flick can
-      // drag it off the edge of the canvas where it's no longer visible or
-      // clickable, effectively losing it.
-      const maxX = payload.scatterW - payload.pieceW;
-      const maxY = payload.scatterH - payload.pieceH;
-      p.x = Math.min(Math.max(rawX, 0), maxX);
-      p.y = Math.min(Math.max(rawY, 0), maxY);
+      // Keep the piece from being dragged far off the edge of the board --
+      // otherwise a fast flick can carry it somewhere no longer visible or
+      // clickable, effectively losing it. A margin (rather than a hard
+      // stop right at the playfield edge) still lets pieces be parked
+      // just outside it, which is where people naturally drag them.
+      const margin = Math.max(payload.pieceW, payload.pieceH);
+      const minX = -margin, minY = -margin;
+      const maxX = payload.scatterW - payload.pieceW + margin;
+      const maxY = payload.scatterH - payload.pieceH + margin;
+      p.x = Math.min(Math.max(rawX, minX), maxX);
+      p.y = Math.min(Math.max(rawY, minY), maxY);
       const now = performance.now();
       if (now - lastMoveEmit > 40) {
         lastMoveEmit = now;
