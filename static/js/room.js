@@ -241,8 +241,19 @@
 
   socket.on("image_updated", (data) => renderPreview(data.image));
 
+  let lastGameStartTime = null;
   socket.on("game_started", (payload) => {
     gameAvailable = true;
+    // "game_started" also replays on every join_lobby (e.g. a socket
+    // reconnect), not just on a genuine new/restarted game -- only reset
+    // the solved-notice guard when this is actually a different game
+    // (a new build_pieces() call stamps a fresh startTime), otherwise a
+    // reconnect replay would immediately undo the guard right before the
+    // matching "puzzle_solved" replay arrives.
+    if (payload.startTime !== lastGameStartTime) {
+      lastGameStartTime = payload.startTime;
+      solvedNotified = false;
+    }
     game.load(payload);
     if (currentView === "game") {
       // Already showing the game (e.g. the host restarted it) -- just
@@ -306,7 +317,16 @@
   el("solved-close-btn").addEventListener("click", () => el("solved-overlay").classList.add("hidden"));
 
   let solvedAt = null;
+  // Set once this page instance has shown the congrats overlay for the
+  // current game. A join_lobby reconnect (e.g. the socket dropping and
+  // auto-reconnecting when the page is restored from the browser's
+  // back/forward cache) makes the server re-emit "puzzle_solved" for an
+  // already-solved room -- without this guard that would silently
+  // un-hide the overlay the player already dismissed.
+  let solvedNotified = false;
   function showSolved(elapsed) {
+    if (solvedNotified) return;
+    solvedNotified = true;
     solvedAt = elapsed;
     const mins = Math.floor(elapsed / 60);
     const secs = Math.floor(elapsed % 60);
