@@ -9,7 +9,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, jsonify, abort
 from flask_socketio import SocketIO, emit, join_room as sio_join_room, leave_room as sio_leave_room
 from werkzeug.utils import secure_filename
-from PIL import Image
+from PIL import Image, ImageOps
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
@@ -265,6 +265,12 @@ def upload_image(code):
         img.verify()
         file.stream.seek(0)
         img = Image.open(file.stream)
+        # Phone photos are usually stored as raw sensor pixels (landscape)
+        # plus an EXIF Orientation tag saying how to rotate them for
+        # display. convert("RGB") below discards that tag, so without this
+        # the saved copy (and everyone's puzzle) comes out sideways/upside
+        # down for any photo taken with the phone held vertically.
+        img = ImageOps.exif_transpose(img)
         img = img.convert("RGB")
     except Exception:
         return jsonify({"error": "invalid_image"}), 400
