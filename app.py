@@ -35,7 +35,21 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 МБ на загрузку
 
-socketio = SocketIO(app, async_mode="threading", max_http_buffer_size=15 * 1024 * 1024)
+socketio = SocketIO(
+    app,
+    async_mode="threading",
+    max_http_buffer_size=15 * 1024 * 1024,
+    # Flask-SocketIO's default (async_handlers=True) dispatches every incoming
+    # event to its own new thread, with no guarantee they run in the order
+    # they arrived. A single player's pickup -> move -> drop sequence (fired
+    # within milliseconds of each other on any real drag) could then be
+    # processed out of order, e.g. drop_piece running before pickup_piece had
+    # set the piece's holder -- silently discarding the drop and leaving the
+    # piece stuck "held" forever. Disabling it makes each connection process
+    # its own events strictly in order; different players' connections still
+    # run concurrently (still guarded by each room's lock).
+    async_handlers=False,
+)
 
 rooms = {}          # code -> room dict
 rooms_lock = threading.Lock()
