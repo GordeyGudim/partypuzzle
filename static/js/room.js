@@ -244,16 +244,7 @@
   let lastGameStartTime = null;
   socket.on("game_started", (payload) => {
     gameAvailable = true;
-    // "game_started" also replays on every join_lobby (e.g. a socket
-    // reconnect), not just on a genuine new/restarted game -- only reset
-    // the solved-notice guard when this is actually a different game
-    // (a new build_pieces() call stamps a fresh startTime), otherwise a
-    // reconnect replay would immediately undo the guard right before the
-    // matching "puzzle_solved" replay arrives.
-    if (payload.startTime !== lastGameStartTime) {
-      lastGameStartTime = payload.startTime;
-      solvedNotified = false;
-    }
+    lastGameStartTime = payload.startTime;
     game.load(payload);
     if (currentView === "game") {
       // Already showing the game (e.g. the host restarted it) -- just
@@ -317,16 +308,21 @@
   el("solved-close-btn").addEventListener("click", () => el("solved-overlay").classList.add("hidden"));
 
   let solvedAt = null;
-  // Set once this page instance has shown the congrats overlay for the
-  // current game. A join_lobby reconnect (e.g. the socket dropping and
-  // auto-reconnecting when the page is restored from the browser's
-  // back/forward cache) makes the server re-emit "puzzle_solved" for an
-  // already-solved room -- without this guard that would silently
-  // un-hide the overlay the player already dismissed.
-  let solvedNotified = false;
+  // join_lobby unconditionally re-emits "puzzle_solved" for an already-
+  // solved room on every (re)join -- including a socket reconnect from a
+  // bfcache page restore, or a real full reload after navigating away and
+  // back (e.g. Back twice past the room, then Forward). A plain in-memory
+  // flag survives the former but not the latter, so remember it in
+  // sessionStorage instead, keyed to this exact game (room + its
+  // server-stamped startTime) -- it survives a real reload within the same
+  // tab, and a genuinely new/restarted game gets a new startTime so its
+  // first solve still notifies normally.
+  function solvedSeenKey() {
+    return `puzzle_solved_seen:${ROOM_CODE}:${lastGameStartTime}`;
+  }
   function showSolved(elapsed) {
-    if (solvedNotified) return;
-    solvedNotified = true;
+    if (sessionStorage.getItem(solvedSeenKey())) return;
+    sessionStorage.setItem(solvedSeenKey(), "1");
     solvedAt = elapsed;
     const mins = Math.floor(elapsed / 60);
     const secs = Math.floor(elapsed % 60);
