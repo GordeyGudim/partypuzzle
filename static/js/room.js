@@ -261,6 +261,13 @@
       // link straight into an already-live game with no view to respect.
       showGame();
     }
+    // respectExistingView should only steer the very first game_started
+    // this page instance receives (deciding whether to honor a pre-tagged
+    // history entry from a Back/Forward/reload landing). If left set, it
+    // would keep silently overriding every later explicit "Начать игру" /
+    // "Начать заново" click too -- currentView is "lobby" right when the
+    // user clicks it, so the button would appear to do nothing at all.
+    respectExistingView = false;
   });
 
   socket.on("piece_held", (data) => game.onPieceHeld(data));
@@ -294,7 +301,16 @@
     btn.addEventListener("click", () => socket.emit("set_options", { difficulty: btn.dataset.diff }));
   });
 
-  el("start-btn").addEventListener("click", () => socket.emit("start_game", {}));
+  el("start-btn").addEventListener("click", () => {
+    // Clicking Start is always an explicit request to see the game now --
+    // it must never be swallowed by respectExistingView, which otherwise
+    // stays stuck "respecting" a stale pre-tagged lobby view (e.g. from an
+    // earlier reload/back-forward in this same tab) and would make the
+    // resulting game_started re-render the lobby instead, i.e. the button
+    // visibly doing nothing.
+    respectExistingView = false;
+    socket.emit("start_game", {});
+  });
   el("back-to-lobby-btn").addEventListener("click", () => history.back());
 
   el("copy-link-btn").addEventListener("click", () => {
